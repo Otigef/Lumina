@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   BookOpen, 
@@ -14,6 +14,8 @@ import {
   Layout,
   Terminal,
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   GraduationCap,
   Copy,
   Info,
@@ -21,7 +23,11 @@ import {
   Video,
   Loader2,
   Award,
-  Download
+  Download,
+  Users,
+  Sun,
+  Moon,
+  Lock
 } from 'lucide-react';
 import Markdown from 'react-markdown';
 import AceEditor from 'react-ace';
@@ -41,9 +47,29 @@ ace.config.set('basePath', 'https://cdn.jsdelivr.net/npm/ace-builds@1.33.0/src-n
 
 
 import { ROADMAP } from './constants';
-import { Lesson, Module, UserProgress } from './types';
+import { Lesson, Module, UserProgress, Exam, ExamScore } from './types';
 import { getMentorFeedback } from './services/gemini';
 import { Certificate } from './components/Certificate';
+import { useWebSocket, ConnectionStatus } from './hooks/useWebSocket';
+import { getWsUrl } from './utils/url';
+
+const ConnectionStatusIndicator = ({ status, label }: { status: ConnectionStatus, label: string }) => {
+  const config = {
+    open: { color: 'bg-emerald-500', text: 'Connected' },
+    connecting: { color: 'bg-amber-500 animate-pulse', text: 'Connecting...' },
+    reconnecting: { color: 'bg-amber-500 animate-pulse', text: 'Reconnecting...' },
+    closed: { color: 'bg-rose-500', text: 'Disconnected' },
+  }[status];
+
+  return (
+    <div className="flex items-center gap-2 px-2.5 py-1 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm rounded-full border border-slate-200/50 dark:border-slate-800/50 shadow-sm">
+      <div className={`w-1.5 h-1.5 rounded-full ${config.color}`} />
+      <span className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-widest flex items-center gap-1.5">
+        {label}: <span className="text-slate-600 dark:text-slate-300">{config.text}</span>
+      </span>
+    </div>
+  );
+};
 
 // --- Context Definition ---
 interface LessonContextType {
@@ -114,8 +140,21 @@ function AppContent() {
     askMentor 
   } = useLesson();
 
-  const [currentView, setCurrentView] = useState<'dashboard' | 'lesson' | 'certificate'>('dashboard');
+  const [currentView, setCurrentView] = useState<'dashboard' | 'lesson' | 'certificate' | 'exam'>('dashboard');
   const [progress, setProgress] = useState<Record<string, UserProgress>>({});
+  const [examScores, setExamScores] = useState<Record<string, ExamScore>>({});
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [examAnswers, setExamAnswers] = useState<Record<string, number>>({});
+  const [examResult, setExamResult] = useState<{score: number, passed: boolean} | null>(null);
+  const [userName, setUserName] = useState<string>(() => localStorage.getItem('userName') || '');
+
+  // Calculate overall progress and score at the top level
+  const totalLessons = ROADMAP.reduce((acc, m) => acc + m.lessons.length, 0);
+  const completedLessons = Object.values(progress).filter(p => p.completed).length;
+  const overallProgress = Math.round((completedLessons / totalLessons) * 100);
+  const moduleScores = ROADMAP.map(m => examScores[m.id]?.score || 0);
+  const overallExamScore = Math.round(moduleScores.reduce((a, b) => a + b, 0) / ROADMAP.length);
+  const canClaimCertificate = overallProgress === 100 && overallExamScore >= 80;
   const [previewKey, setPreviewKey] = useState(0);
   const [userQuestion, setUserQuestion] = useState('');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -127,10 +166,98 @@ function AppContent() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [verificationFeedback, setVerificationFeedback] = useState<{success: boolean, message: string} | null>(null);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [totalStudents, setTotalStudents] = useState(1248);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const [isNewSession] = useState(() => {
+    const started = sessionStorage.getItem('session_started');
+    if (!started) {
+      sessionStorage.setItem('session_started', 'true');
+      return true;
+    }
+    return false;
+  });
+
+  const globalWsUrl = useMemo(() => getWsUrl({ newSession: isNewSession }), [isNewSession]);
+
+  const { status: globalStatus } = useWebSocket(globalWsUrl, {
+    onMessage: (message) => {
+      try {
+        const data = JSON.parse(message);
+        if (data.type === 'stats_update') {
+          setTotalStudents(data.totalStudents);
+        }
+      } catch (e) {
+        // Not a JSON message, likely lesson code
+      }
+    }
+  });
+
+  const lessonWsUrl = useMemo(() => {
+    if (!selectedLesson) return null;
+    return getWsUrl({ lessonId: selectedLesson.id });
+  }, [selectedLesson]);
+
+  const { sendMessage: sendLessonMessage, status: lessonStatus } = useWebSocket(lessonWsUrl, {
+    onOpen: () => console.log('Lesson WebSocket connected'),
+    onClose: () => console.log('Lesson WebSocket disconnected'),
+    onError: (err) => console.error('Lesson WebSocket error:', err),
+    onMessage: (message) => {
+      try {
+        try {
+          const data = JSON.parse(message);
+          // Ignore stats updates in the lesson-specific handler
+          if (data.type === 'stats_update') return;
+          
+          if (data.type === 'code_update' && data.code !== undefined) {
+            setIsRemoteChange(true);
+            setCode(data.code);
+          }
+        } catch (e) {
+          // If not JSON, it's likely raw code. 
+          if (typeof message === 'string' && message.length > 0) {
+            setIsRemoteChange(true);
+            setCode(message);
+          }
+        }
+      } catch (err) {
+        console.error('Error processing WebSocket message:', err);
+      }
+    }
+  });
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 400);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const [isRemoteChange, setIsRemoteChange] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
 
-  const ws = useRef<WebSocket | null>(null);
+  useEffect(() => {
+    const root = window.document.documentElement;
+    if (theme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme(prev => prev === 'light' ? 'dark' : 'light');
+  };
 
   const GridAreasDemo = () => {
     const [areas, setAreas] = useState('"header header"\n"sidebar main"\n"footer footer"');
@@ -145,20 +272,20 @@ function AppContent() {
     }
 
     return (
-      <div className="my-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 shadow-sm">
-        <h4 className="text-lg font-bold text-slate-900 mb-4">Interactive Grid Areas Demo</h4>
+      <div className="my-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm">
+        <h4 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Interactive Grid Areas Demo</h4>
         <div className="grid lg:grid-cols-2 gap-8">
           <div>
-            <label className="block text-sm font-bold text-slate-600 mb-2">grid-template-areas:</label>
+            <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-2">grid-template-areas:</label>
             <textarea
               value={areas}
               onChange={(e) => setAreas(e.target.value)}
-              className="w-full h-32 p-2 font-mono text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500/50 outline-none"
+              className="w-full h-32 p-2 font-mono text-sm bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg focus:ring-2 focus:ring-emerald-500/50 outline-none text-slate-900 dark:text-slate-100"
             />
             {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
           </div>
           <div 
-            className="grid gap-4 p-4 bg-white rounded-2xl border border-slate-200 shadow-inner min-h-[200px]"
+            className="grid gap-4 p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-inner min-h-[200px]"
             style={gridStyle}
           >
             <div style={{ gridArea: 'header' }} className="bg-blue-500/80 rounded-lg flex items-center justify-center text-white font-bold">Header</div>
@@ -276,9 +403,9 @@ function AppContent() {
     };
 
     return (
-      <div className="my-8 p-6 bg-slate-50 rounded-3xl border border-slate-200 shadow-sm">
+      <div className="my-8 p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="flex items-center justify-between mb-6">
-          <h4 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+          <h4 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
             <Layout size={20} className="text-emerald-500" />
             Interactive Specificity Demo
           </h4>
@@ -295,7 +422,7 @@ function AppContent() {
             {selectors.map((s, idx) => {
               const spec = calculateSpecificity(s.text);
               return (
-                <div key={s.id} className="p-4 bg-white rounded-2xl border border-slate-100 shadow-sm group">
+                <div key={s.id} className="p-4 bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm group">
                   <div className="flex items-center gap-3 mb-3">
                     <input
                       type="text"
@@ -305,7 +432,7 @@ function AppContent() {
                         newSelectors[idx].text = e.target.value;
                         setSelectors(newSelectors);
                       }}
-                      className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:ring-2 focus:ring-emerald-500/20 outline-none"
+                      className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-mono focus:ring-2 focus:ring-emerald-500/20 outline-none text-slate-900 dark:text-slate-100"
                       placeholder="e.g. .button:hover"
                     />
                     <input
@@ -327,17 +454,17 @@ function AppContent() {
                   </div>
                   <div className="flex items-center justify-between">
                     <div className="flex gap-2">
-                      <div className="px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-500">
+                      <div className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 dark:text-slate-400">
                         ID: {spec.ids}
                       </div>
-                      <div className="px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-500">
+                      <div className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 dark:text-slate-400">
                         Class: {spec.classes}
                       </div>
-                      <div className="px-2 py-1 bg-slate-100 rounded text-[10px] font-bold text-slate-500">
+                      <div className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded text-[10px] font-bold text-slate-500 dark:text-slate-400">
                         Elem: {spec.elements}
                       </div>
                     </div>
-                    <div className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                    <div className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-1 rounded">
                       Score: (0, {spec.ids}, {spec.classes}, {spec.elements})
                     </div>
                   </div>
@@ -346,7 +473,7 @@ function AppContent() {
             })}
           </div>
           
-          <div className="flex flex-col items-center justify-center p-8 bg-white rounded-3xl border border-slate-100 shadow-inner min-h-[300px] sticky top-4">
+          <div className="flex flex-col items-center justify-center p-8 bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-inner min-h-[300px] sticky top-4">
             <div className="text-xs font-bold text-slate-400 uppercase mb-8 tracking-widest">Live Preview</div>
             
             <div className="relative">
@@ -362,7 +489,7 @@ function AppContent() {
             </div>
             
             <div className="mt-12 w-full">
-              <div className="p-4 bg-slate-900 rounded-2xl text-white">
+              <div className="p-4 bg-slate-900 dark:bg-slate-800 rounded-2xl text-white">
                 <div className="text-[10px] font-bold text-slate-500 uppercase mb-2">Winning Selector</div>
                 <div className="flex items-center justify-between">
                   <code className="text-emerald-400 font-bold">{winner.text}</code>
@@ -463,13 +590,13 @@ function AppContent() {
   };
 
   useEffect(() => {
-    if (selectedLesson && ws.current?.readyState === WebSocket.OPEN && !isRemoteChange) {
-      ws.current.send(code);
+    if (selectedLesson && !isRemoteChange) {
+      sendLessonMessage(code);
     }
     if (isRemoteChange) {
       setIsRemoteChange(false);
     }
-  }, [code, selectedLesson, isRemoteChange]);
+  }, [code, selectedLesson, isRemoteChange, sendLessonMessage]);
 
   const goToNextLesson = () => {
     if (!selectedLesson) return;
@@ -524,7 +651,195 @@ function AppContent() {
 
   useEffect(() => {
     fetchProgress();
+    fetchExamScores();
+    fetchStats();
   }, []);
+
+  const fetchExamScores = () => {
+    try {
+      const savedScores = localStorage.getItem('examScores');
+      if (savedScores) {
+        setExamScores(JSON.parse(savedScores));
+      }
+    } catch (err) {
+      console.error('Failed to fetch exam scores', err);
+    }
+  };
+
+  const saveExamScore = (moduleId: string, score: number, passed: boolean) => {
+    try {
+      const newScores = {
+        ...examScores,
+        [moduleId]: {
+          module_id: moduleId,
+          score,
+          completed: passed
+        }
+      };
+      setExamScores(newScores);
+      localStorage.setItem('examScores', JSON.stringify(newScores));
+    } catch (err) {
+      console.error('Failed to save exam score', err);
+    }
+  };
+
+  const updateUserName = (name: string) => {
+    setUserName(name);
+    localStorage.setItem('userName', name);
+  };
+
+  const startExam = (module: Module) => {
+    setSelectedModule(module);
+    setExamAnswers({});
+    setExamResult(null);
+    setCurrentView('exam');
+  };
+
+  const handleExamSubmit = () => {
+    if (!selectedModule || !selectedModule.exam) return;
+    
+    let correctCount = 0;
+    selectedModule.exam.questions.forEach((q, idx) => {
+      if (examAnswers[idx] === q.correctAnswer) {
+        correctCount++;
+      }
+    });
+
+    const score = Math.round((correctCount / selectedModule.exam.questions.length) * 100);
+    const passed = score >= 80;
+    
+    setExamResult({ score, passed });
+    saveExamScore(selectedModule.id, score, passed);
+  };
+
+  const renderExam = () => {
+    if (!selectedModule || !selectedModule.exam) return null;
+
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 py-12 px-6 transition-colors duration-300">
+        <div className="max-w-3xl mx-auto">
+          <button 
+            onClick={() => setCurrentView('dashboard')}
+            className="flex items-center gap-2 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 mb-8 transition-colors font-bold"
+          >
+            <ArrowLeft size={20} />
+            Back to Dashboard
+          </button>
+
+          <div className="bg-white dark:bg-slate-900 rounded-[40px] shadow-2xl overflow-hidden border border-slate-100 dark:border-slate-800">
+            <div className="bg-slate-900 p-12 text-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/20 blur-3xl -mr-32 -mt-32"></div>
+              <div className="relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-[10px] font-black uppercase tracking-widest mb-4 border border-emerald-500/30">
+                  <GraduationCap size={14} />
+                  Module Assessment
+                </div>
+                <h1 className="text-4xl font-black mb-2">{selectedModule.exam.title}</h1>
+                <p className="text-slate-400 font-medium">Test your knowledge of {selectedModule.title}. You need 80% to pass.</p>
+              </div>
+            </div>
+
+            <div className="p-12">
+              {!examResult ? (
+                <div className="space-y-12">
+                  {selectedModule.exam.questions.map((q, qIdx) => (
+                    <div key={q.id} className="space-y-6">
+                      <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 flex gap-4">
+                        <span className="w-8 h-8 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 dark:text-slate-400 text-sm shrink-0">{qIdx + 1}</span>
+                        {q.question}
+                      </h3>
+                      <div className="grid gap-3 ml-12">
+                        {q.options.map((option, oIdx) => (
+                          <button
+                            key={oIdx}
+                            onClick={() => setExamAnswers(prev => ({ ...prev, [qIdx]: oIdx }))}
+                            className={`p-4 rounded-2xl text-left transition-all border-2 font-medium ${
+                              examAnswers[qIdx] === oIdx
+                                ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-500 text-emerald-700 dark:text-emerald-400 shadow-lg shadow-emerald-500/10'
+                                : 'bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-slate-200 dark:hover:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                examAnswers[qIdx] === oIdx ? 'border-emerald-500 bg-emerald-500' : 'border-slate-200 dark:border-slate-600'
+                              }`}>
+                                {examAnswers[qIdx] === oIdx && <div className="w-2 h-2 rounded-full bg-white" />}
+                              </div>
+                              {option}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+
+                  <div className="pt-8 border-t dark:border-slate-800">
+                    <button
+                      onClick={handleExamSubmit}
+                      disabled={Object.keys(examAnswers).length < selectedModule.exam.questions.length}
+                      className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-500/20 hover:bg-emerald-600 transition-all disabled:opacity-50 disabled:grayscale"
+                    >
+                      Submit Assessment
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <div className={`w-24 h-24 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-2xl ${
+                    examResult.passed ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400'
+                  }`}>
+                    {examResult.passed ? <Trophy size={48} /> : <Info size={48} />}
+                  </div>
+                  <h2 className="text-4xl font-black text-slate-900 dark:text-white mb-2">
+                    {examResult.passed ? 'Assessment Passed!' : 'Not Quite There'}
+                  </h2>
+                  <p className="text-slate-500 dark:text-slate-400 text-lg mb-8">
+                    You scored <span className="font-bold text-slate-900 dark:text-white">{examResult.score}%</span> on the {selectedModule.title} exam.
+                  </p>
+                  
+                  <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                    {examResult.passed ? (
+                      <button
+                        onClick={() => setCurrentView('dashboard')}
+                        className="px-8 py-4 bg-emerald-500 text-white rounded-2xl font-bold hover:bg-emerald-600 transition-all shadow-xl"
+                      >
+                        Return to Dashboard
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => setExamResult(null)}
+                          className="px-8 py-4 bg-amber-500 text-white rounded-2xl font-bold hover:bg-amber-600 transition-all shadow-xl"
+                        >
+                          Try Again
+                        </button>
+                        <button
+                          onClick={() => setCurrentView('dashboard')}
+                          className="px-8 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                        >
+                          Back to Dashboard
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const fetchStats = async () => {
+    try {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      setTotalStudents(data.totalStudents);
+    } catch (err) {
+      console.error('Failed to fetch stats', err);
+    }
+  };
 
   const fetchProgress = () => {
     try {
@@ -561,28 +876,6 @@ function AppContent() {
     setMentorResponse('Hi! I\'m your SkillStack Mentor. Ready to write some code?');
     setVideoUrl(null);
     setVideoError(null);
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}?lessonId=${lesson.id}`;
-    ws.current = new WebSocket(wsUrl);
-
-    ws.current.onopen = () => {
-      console.log('WebSocket connected');
-    };
-
-    ws.current.onmessage = (event) => {
-      const receivedCode = event.data;
-      setIsRemoteChange(true);
-      setCode(receivedCode);
-    };
-
-    ws.current.onclose = () => {
-      console.log('WebSocket disconnected');
-    };
-
-    ws.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
   };
 
   const handleRunCode = () => {
@@ -606,10 +899,13 @@ function AppContent() {
           User Code:
           ${code}
           
+          If the code is incorrect, be very specific about what needs to be fixed. 
+          Use backticks (\`) to highlight the specific part of the code that needs attention or the correct syntax to use.
+          
           Provide your response in JSON format:
           {
             "success": boolean,
-            "message": "A short, encouraging message explaining why it passed or what needs to be fixed."
+            "message": "A short, encouraging message. If success is false, explain exactly what to fix and highlight the code part using backticks."
           }
         `,
         config: {
@@ -790,12 +1086,8 @@ function AppContent() {
         </code>
       );
     },
-    p: ({ node, children }: any) => {
-      const firstChild = node.children[0];
-      if (firstChild && firstChild.tagName === 'code') {
-        return <>{children}</>;
-      }
-      return <p>{children}</p>;
+    p: ({ children }: any) => {
+      return <div className="mb-4">{children}</div>;
     },
     a: ({ node, children, href, ...props }: any) => {
       if (href?.startsWith('term:')) {
@@ -842,10 +1134,6 @@ function AppContent() {
   };
 
   const renderDashboard = () => {
-    const totalLessons = ROADMAP.reduce((acc, m) => acc + m.lessons.length, 0);
-    const completedLessons = Object.values(progress).filter(p => p.completed).length;
-    const overallProgress = Math.round((completedLessons / totalLessons) * 100);
-
     return (
       <div className="max-w-6xl mx-auto px-6 py-12">
         <div className="grid lg:grid-cols-[1fr_300px] gap-12">
@@ -855,21 +1143,47 @@ function AppContent() {
                 <motion.div 
                   initial={{ opacity: 0, y: -20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-full text-xs font-bold mb-6 border border-emerald-100"
+                  className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-full text-xs font-bold mb-6 border border-emerald-100 dark:border-emerald-900/30"
                 >
                   <Sparkles size={14} />
                   THE FUTURE OF LEARNING
                 </motion.div>
-                <h1 className="text-6xl font-bold text-slate-900 mb-6 tracking-tight leading-none">
+                <h1 className="text-6xl font-bold text-app-text mb-6 tracking-tight leading-none">
                   Master the Web <br />
                   <span className="text-emerald-500">with Lumina.</span>
                 </h1>
-                <p className="text-lg text-slate-500 max-w-xl leading-relaxed">
+                
+                <div className="mb-8">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Your Name (for Certificate)</label>
+                  <input 
+                    type="text" 
+                    value={userName}
+                    onChange={(e) => updateUserName(e.target.value)}
+                    placeholder="Enter your full name..."
+                    className="w-full max-w-sm px-4 py-3 rounded-xl border border-card-border bg-card-bg text-app-text focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 outline-none transition-all font-medium"
+                  />
+                </div>
+
+                <p className="text-lg text-slate-500 dark:text-slate-400 max-w-xl leading-relaxed">
                   The most advanced interactive path for absolute beginners to master modern web development through hands-on practice and AI mentorship.
                 </p>
+
+                <motion.button
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 1 }}
+                  onClick={() => {
+                    const roadmapSection = document.getElementById('learning-roadmap');
+                    roadmapSection?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="mt-12 flex items-center gap-2 text-slate-400 hover:text-emerald-500 transition-colors group"
+                >
+                  <span className="text-xs font-bold uppercase tracking-widest">Explore Roadmap</span>
+                  <ArrowDown size={16} className="group-hover:translate-y-1 transition-transform" />
+                </motion.button>
               </div>
 
-              {overallProgress === 100 && (
+              {canClaimCertificate && (
                 <motion.button
                   initial={{ opacity: 0, scale: 0.9, rotate: -5 }}
                   animate={{ opacity: 1, scale: 1, rotate: 0 }}
@@ -892,57 +1206,83 @@ function AppContent() {
               <motion.div 
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mb-12 p-8 bg-emerald-500 rounded-[40px] text-white shadow-2xl shadow-emerald-500/20 relative overflow-hidden"
+                className={`mb-12 p-8 rounded-[40px] text-white shadow-2xl relative overflow-hidden ${
+                  canClaimCertificate ? 'bg-emerald-500 shadow-emerald-500/20' : 'bg-slate-800 shadow-slate-900/20'
+                }`}
               >
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 blur-3xl -mr-32 -mt-32 rounded-full"></div>
                 <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
                   <div className="w-24 h-24 bg-white/20 rounded-3xl flex items-center justify-center shrink-0">
-                    <Trophy size={48} />
+                    {canClaimCertificate ? <Trophy size={48} /> : <GraduationCap size={48} />}
                   </div>
                   <div className="flex-1 text-center md:text-left">
-                    <h2 className="text-3xl font-black mb-2">Congratulations, Graduate!</h2>
+                    <h2 className="text-3xl font-black mb-2">
+                      {canClaimCertificate ? 'Congratulations, Graduate!' : 'Almost There!'}
+                    </h2>
                     <p className="text-emerald-50 font-medium opacity-90 mb-6">
-                      You've mastered the fundamentals of web development. Your hard work has paid off!
+                      {canClaimCertificate 
+                        ? "You've mastered the fundamentals of web development with an impressive score. Your hard work has paid off!"
+                        : `You've completed all lessons, but your overall assessment score is ${overallExamScore}%. You need at least 80% to claim your certificate.`}
                     </p>
-                    <button 
-                      onClick={() => setCurrentView('certificate')}
-                      className="px-8 py-3 bg-white text-emerald-600 rounded-2xl font-bold hover:bg-emerald-50 transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2 mx-auto md:mx-0"
-                    >
-                      <Download size={20} />
-                      Download Your Certificate
-                    </button>
+                    {canClaimCertificate ? (
+                      <button 
+                        onClick={() => setCurrentView('certificate')}
+                        className="px-8 py-3 bg-white text-emerald-600 rounded-2xl font-bold hover:bg-emerald-50 transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-2 mx-auto md:mx-0"
+                      >
+                        <Download size={20} />
+                        Download Your Certificate
+                      </button>
+                    ) : (
+                      <div className="text-sm font-bold bg-white/20 inline-block px-4 py-2 rounded-xl backdrop-blur-md">
+                        Retake module exams to improve your score!
+                      </div>
+                    )}
                   </div>
                 </div>
               </motion.div>
             )}
 
             <div className="grid gap-6 mb-12">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Overall Progress</div>
-                  <div className="text-3xl font-bold text-slate-900">{overallProgress}%</div>
+                  <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-2">Overall Progress</div>
+                  <div className="text-2xl font-bold text-slate-900">{overallProgress}%</div>
                   <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                     <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${overallProgress}%` }}></div>
                   </div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Current Streak</div>
-                  <div className="text-3xl font-bold text-slate-900">12 Days</div>
-                  <div className="text-xs text-emerald-600 font-bold mt-1">Keep it up! 🔥</div>
+                  <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-2">Assessment Score</div>
+                  <div className="text-2xl font-bold text-slate-900">{overallExamScore}%</div>
+                  <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 rounded-full" style={{ width: `${overallExamScore}%` }}></div>
+                  </div>
                 </div>
                 <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-                  <div className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total XP</div>
-                  <div className="text-3xl font-bold text-slate-900">{completedLessons * 150}</div>
+                  <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-2">Total XP</div>
+                  <div className="text-2xl font-bold text-slate-900">{completedLessons * 150}</div>
                   <div className="text-xs text-slate-400 font-medium mt-1">Next rank at 5,000</div>
+                </div>
+                <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <Users size={40} className="text-emerald-500" />
+                  </div>
+                  <div className="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-2">Total Students</div>
+                  <div className="text-2xl font-bold text-slate-900">{totalStudents.toLocaleString()}</div>
+                  <div className="text-xs text-emerald-600 font-bold mt-1 flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Learning right now
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="grid gap-8">
+            <div id="learning-roadmap" className="grid gap-8">
               {ROADMAP.map((module, idx) => {
                 const completedCount = module.lessons.filter(l => progress[l.id]?.completed).length;
                 const totalCount = module.lessons.length;
                 const percentage = (completedCount / totalCount) * 100;
+                const isMastered = completedCount === totalCount && examScores[module.id]?.completed;
 
                 return (
                   <motion.div 
@@ -950,22 +1290,34 @@ function AppContent() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: idx * 0.1 }}
-                    className="bg-white rounded-[32px] border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow"
+                    className="bg-card-bg rounded-[32px] border border-card-border shadow-sm overflow-hidden hover:shadow-md transition-shadow"
                   >
-                    <div className="p-8 border-b border-slate-100 bg-slate-50/30">
+                    <div className="p-8 border-b border-card-border bg-app-bg/30">
                       <div className="flex items-center justify-between mb-4">
                         <div>
                           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mb-1 block">
                             Module {idx + 1} • {module.level}
                           </span>
-                          <h2 className="text-2xl font-bold text-slate-900">{module.title}</h2>
+                          <div className="flex items-center gap-3">
+                            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">{module.title}</h2>
+                            {isMastered && (
+                              <motion.div
+                                initial={{ scale: 0, rotate: -45 }}
+                                animate={{ scale: 1, rotate: 0 }}
+                                className="bg-emerald-500 text-white p-1 rounded-full shadow-lg shadow-emerald-500/20 flex items-center justify-center"
+                                title="Module Mastered"
+                              >
+                                <CheckCircle2 size={14} />
+                              </motion.div>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 text-sm font-bold text-slate-500 bg-white px-3 py-1.5 rounded-full border border-slate-100 shadow-sm">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-full border border-slate-100 dark:border-slate-700 shadow-sm">
                           <Trophy size={16} className={percentage === 100 ? "text-emerald-500" : "text-amber-400"} />
                           {completedCount}/{totalCount}
                         </div>
                       </div>
-                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div className="h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                         <motion.div 
                           initial={{ width: 0 }}
                           animate={{ width: `${percentage}%` }}
@@ -982,32 +1334,32 @@ function AppContent() {
                             onClick={() => startLesson(lesson)}
                             className={`flex items-center justify-between p-6 rounded-2xl border transition-all text-left group relative hover:scale-[1.01] ${
                               isCompleted 
-                                ? 'border-emerald-100 bg-emerald-50/5 hover:border-emerald-200 hover:bg-emerald-50/20' 
-                                : 'border-slate-100 bg-white hover:border-emerald-200 hover:bg-emerald-50/10'
+                                ? 'border-emerald-100 dark:border-emerald-900/30 bg-emerald-50/5 dark:bg-emerald-500/5 hover:border-emerald-200 dark:hover:border-emerald-500/50 hover:bg-emerald-50/20 dark:hover:bg-emerald-500/10' 
+                                : 'border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 hover:border-emerald-200 dark:hover:border-emerald-500/50 hover:bg-emerald-50/10 dark:hover:bg-emerald-500/5'
                             }`}
                           >
                             <div className="flex items-center gap-4">
                               <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
-                                isCompleted ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
+                                isCompleted ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500'
                               }`}>
                                 {isCompleted ? <CheckCircle2 size={24} /> : <BookOpen size={24} />}
                               </div>
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="font-bold text-slate-800 group-hover:text-emerald-700 transition-colors">{lesson.title}</h3>
+                                  <h3 className="font-bold text-slate-800 dark:text-slate-200 group-hover:text-emerald-700 dark:group-hover:text-emerald-400 transition-colors">{lesson.title}</h3>
                                   {lesson.isComplex && (
-                                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[9px] font-bold rounded uppercase tracking-wider">
+                                    <div className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold rounded uppercase tracking-wider">
                                       <Video size={10} />
                                       Video
                                     </div>
                                   )}
                                   {isCompleted && (
-                                    <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                    <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold rounded-full uppercase tracking-wider">
                                       Done
                                     </span>
                                   )}
                                 </div>
-                                <p className="text-sm text-slate-500 line-clamp-1">{lesson.description}</p>
+                                <p className="text-sm text-slate-500 dark:text-slate-400 line-clamp-1">{lesson.description}</p>
                               </div>
                             </div>
                             <ChevronRight size={20} className={`transition-all ${isCompleted ? 'text-emerald-400' : 'text-slate-300 group-hover:text-emerald-400 group-hover:translate-x-1'}`} />
@@ -1015,6 +1367,45 @@ function AppContent() {
                         );
                       })}
                     </div>
+                    {percentage === 100 && module.exam && (
+                      <div className="px-4 pb-4">
+                        <button
+                          onClick={() => startExam(module)}
+                          className={`w-full flex items-center justify-between p-6 rounded-2xl border-2 transition-all text-left group relative hover:scale-[1.01] ${
+                            examScores[module.id]?.completed
+                              ? 'border-emerald-500 bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
+                              : 'border-dashed border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-4">
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center transition-colors ${
+                              examScores[module.id]?.completed ? 'bg-white/20 text-white' : 'bg-white dark:bg-slate-800 text-slate-400 dark:text-slate-500'
+                            }`}>
+                              <GraduationCap size={24} />
+                            </div>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <h3 className={`font-bold ${examScores[module.id]?.completed ? 'text-white' : 'text-slate-800 dark:text-slate-200'}`}>
+                                  {module.exam.title}
+                                </h3>
+                                {examScores[module.id]?.completed && (
+                                  <span className="px-2 py-0.5 bg-white/20 text-white text-[10px] font-bold rounded-full uppercase tracking-wider">
+                                    Score: {examScores[module.id].score}%
+                                  </span>
+                                )}
+                              </div>
+                              <p className={`text-sm ${examScores[module.id]?.completed ? 'text-emerald-50' : 'text-slate-500 dark:text-slate-400'}`}>
+                                {examScores[module.id]?.completed ? 'Assessment Completed' : 'Take the module assessment to test your knowledge'}
+                              </p>
+                            </div>
+                          </div>
+                          <div className={`flex items-center gap-2 font-bold text-sm ${examScores[module.id]?.completed ? 'text-white' : 'text-emerald-600'}`}>
+                            {examScores[module.id]?.completed ? 'Retake' : 'Start Exam'}
+                            <ChevronRight size={20} className="transition-transform group-hover:translate-x-1" />
+                          </div>
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 );
               })}
@@ -1132,23 +1523,23 @@ function AppContent() {
     };
 
     return (
-      <div className="h-screen flex flex-col bg-slate-50">
-        <nav className="h-16 border-b bg-white px-6 flex items-center justify-between shrink-0">
+      <div className="h-screen flex flex-col transition-colors duration-300 bg-app-bg text-app-text">
+        <nav className="h-16 border-b border-card-border bg-nav-bg backdrop-blur-md px-6 flex items-center justify-between shrink-0 sticky top-0 z-50">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setCurrentView('dashboard')}
-              className="p-2 hover:bg-slate-100 rounded-lg text-slate-500 transition-colors"
+              className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-500 dark:text-slate-400 transition-colors"
             >
               <ArrowLeft size={20} />
             </button>
-            <div className="h-6 w-px bg-slate-200"></div>
+            <div className="h-6 w-px bg-slate-200 dark:bg-slate-800"></div>
             <div className="flex items-center gap-2">
               <div>
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Learning</span>
                 <motion.h2 
-                  animate={progress[selectedLesson.id]?.completed ? { y: [0, -2, 0], color: ['#1e293b', '#10b981', '#1e293b'] } : {}}
+                  animate={progress[selectedLesson.id]?.completed ? { y: [0, -2, 0], color: theme === 'dark' ? ['#f8fafc', '#10b981', '#f8fafc'] : ['#1e293b', '#10b981', '#1e293b'] } : {}}
                   transition={{ duration: 0.5 }}
-                  className="text-sm font-bold text-slate-800"
+                  className="text-sm font-bold text-slate-800 dark:text-slate-100"
                 >
                   {selectedLesson.title}
                 </motion.h2>
@@ -1176,7 +1567,7 @@ function AppContent() {
           <div className="flex items-center gap-3">
             <button 
               onClick={() => setIsFocusMode(!isFocusMode)}
-              className={`p-2 rounded-xl transition-colors ${isFocusMode ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-slate-100 text-slate-500'}`}
+              className={`p-2 rounded-xl transition-colors ${isFocusMode ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400'}`}
               title={isFocusMode ? "Exit Focus Mode" : "Enter Focus Mode"}
             >
               <Layout size={20} />
@@ -1185,7 +1576,7 @@ function AppContent() {
               onClick={markAsComplete}
               animate={progress[selectedLesson.id]?.completed ? { scale: [1, 1.05, 1] } : {}}
               whileTap={{ scale: 0.95 }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${progress[selectedLesson.id]?.completed ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${progress[selectedLesson.id]?.completed ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
             >
               <CheckCircle2 size={18} />
               {progress[selectedLesson.id]?.completed ? 'Completed' : 'Mark Complete'}
@@ -1196,11 +1587,11 @@ function AppContent() {
         <div className="flex-1 flex overflow-hidden">
           {/* Sidebar: Instructions & Mentor */}
           {!isFocusMode && (
-            <div className="w-1/3 border-r bg-white flex flex-col overflow-hidden">
+            <div className="w-1/3 border-r dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden">
             <div className="p-6 overflow-y-auto flex-1">
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-slate-800">Instructions</h3>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Instructions</h3>
                   {selectedLesson.isComplex && (
                     <button
                       onClick={generateVideo}
@@ -1276,7 +1667,7 @@ function AppContent() {
                   </motion.div>
                 )}
 
-                <div className="text-slate-600 leading-relaxed mb-4 prose prose-slate max-w-none">
+                <div className="text-slate-600 dark:text-slate-400 leading-relaxed mb-4 prose prose-slate dark:prose-invert max-w-none">
                   <Markdown components={MarkdownComponents}>{selectedLesson.content}</Markdown>
                 </div>
 
@@ -1299,21 +1690,21 @@ function AppContent() {
                   </div>
                 </div>
 
-                <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl text-emerald-800 text-sm italic flex gap-3">
+                <div className="p-4 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-900/30 rounded-xl text-emerald-800 dark:text-emerald-300 text-sm italic flex gap-3">
                   <Info size={18} className="shrink-0 mt-0.5" />
                   {selectedLesson.description}
                 </div>
               </div>
 
-              <div className="border-t pt-8">
+              <div className="border-t dark:border-slate-800 pt-8">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
                     <MessageSquare size={20} className="text-emerald-500" />
                     AI Mentor
                   </h3>
                   {isMentorLoading && <div className="animate-spin rounded-full h-4 w-4 border-2 border-emerald-500 border-t-transparent"></div>}
                 </div>
-                <div className="bg-slate-50 rounded-2xl p-4 text-sm text-slate-700 leading-relaxed prose prose-slate">
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 text-sm text-slate-700 dark:text-slate-300 leading-relaxed prose prose-slate dark:prose-invert">
                   <Markdown components={MarkdownComponents}>{mentorResponse}</Markdown>
                 </div>
                 <div className="mt-4 flex gap-2">
@@ -1322,7 +1713,7 @@ function AppContent() {
                     value={userQuestion}
                     onChange={(e) => setUserQuestion(e.target.value)}
                     placeholder="Ask me anything..."
-                    className="flex-1 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+                    className="flex-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
                     onKeyDown={(e) => e.key === 'Enter' && handleAskMentor(userQuestion)}
                   />
                   <button 
@@ -1400,7 +1791,9 @@ function AppContent() {
                           <div className="text-[10px] font-black uppercase tracking-wider opacity-70 mb-0.5">
                             {verificationFeedback.success ? 'Challenge Passed!' : 'Keep Trying'}
                           </div>
-                          <div className="text-xs font-medium leading-tight">{verificationFeedback.message}</div>
+                          <div className="text-xs font-medium leading-tight prose prose-invert prose-p:m-0 prose-code:text-emerald-300 prose-code:bg-black/20 prose-code:px-1 prose-code:rounded">
+                            <Markdown>{verificationFeedback.message}</Markdown>
+                          </div>
                         </div>
                         <button 
                           onClick={() => setVerificationFeedback(null)}
@@ -1417,18 +1810,18 @@ function AppContent() {
                         exit={{ opacity: 0, scale: 0.95 }}
                         className="absolute inset-0 z-50 bg-slate-900/90 backdrop-blur-sm flex items-center justify-center p-4"
                       >
-                        <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
-                          <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mb-4">
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+                          <div className="w-12 h-12 bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 rounded-full flex items-center justify-center mb-4">
                             <RotateCcw size={24} />
                           </div>
-                          <h3 className="text-lg font-bold text-slate-900 mb-2">Reset your code?</h3>
-                          <p className="text-slate-600 text-sm mb-6">
+                          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Reset your code?</h3>
+                          <p className="text-slate-600 dark:text-slate-400 text-sm mb-6">
                             This will delete all your current progress in this lesson and restore the initial code. This action cannot be undone.
                           </p>
                           <div className="flex gap-3">
                             <button 
                               onClick={() => setShowResetConfirm(false)}
-                              className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                              className="flex-1 px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                             >
                               Cancel
                             </button>
@@ -1448,7 +1841,7 @@ function AppContent() {
                   </AnimatePresence>
                   <AceEditor
                     mode={getAceMode(selectedLesson.type)}
-                    theme="tomorrow_night"
+                    theme={theme === 'dark' ? 'monokai' : 'tomorrow_night'}
                     onChange={setCode}
                     value={code}
                     name="skillstack-editor"
@@ -1467,8 +1860,8 @@ function AppContent() {
                   />
                 </div>
               </div>
-              <div className="h-1/2 bg-white flex flex-col">
-                <div className="h-10 bg-slate-50 border-b px-4 flex items-center gap-2 text-slate-400 text-xs font-medium shrink-0">
+              <div className="h-1/2 bg-white dark:bg-slate-900 flex flex-col">
+                <div className="h-10 bg-slate-50 dark:bg-slate-800/50 border-b dark:border-slate-800 px-4 flex items-center gap-2 text-slate-400 text-xs font-medium shrink-0">
                   <Layout size={14} />
                   Live Preview
                 </div>
@@ -1476,7 +1869,7 @@ function AppContent() {
                   key={previewKey}
                   title="preview"
                   srcDoc={previewContent}
-                  className="flex-1 w-full border-none"
+                  className="flex-1 w-full border-none bg-white"
                 />
               </div>
             </div>
@@ -1499,9 +1892,9 @@ function AppContent() {
           </div>
         </div>
 
-        <div className="h-16 border-t bg-white px-6 flex items-center justify-between shrink-0">
+        <div className="h-16 border-t dark:border-slate-800 bg-white dark:bg-slate-900 px-6 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${progress[selectedLesson.id]?.completed ? 'text-emerald-600' : 'text-slate-400'}`}>
+            <div className={`flex items-center gap-2 text-xs font-bold uppercase tracking-wider ${progress[selectedLesson.id]?.completed ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}`}>
               {progress[selectedLesson.id]?.completed ? (
                 <>
                   <CheckCircle2 size={14} />
@@ -1518,7 +1911,7 @@ function AppContent() {
           <div className="flex items-center gap-3">
             <button
               onClick={goToPreviousLesson}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               disabled={(() => {
                 if (!selectedLesson) return true;
                 const firstModule = ROADMAP[0];
@@ -1530,15 +1923,24 @@ function AppContent() {
             </button>
             <button
               onClick={goToNextLesson}
-              disabled={!progress[selectedLesson.id]?.completed}
-              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold transition-all ${
-                progress[selectedLesson.id]?.completed
-                  ? 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              disabled={!selectedLesson || !progress[selectedLesson.id]?.completed}
+              className={`flex items-center gap-2 px-6 py-2 rounded-xl text-sm font-bold transition-all group ${
+                selectedLesson && progress[selectedLesson.id]?.completed
+                  ? 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-500/20'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed border border-slate-200 dark:border-slate-700'
               }`}
             >
-              Next Lesson
-              <ChevronRight size={18} />
+              {selectedLesson && progress[selectedLesson.id]?.completed ? (
+                <>
+                  Next Lesson
+                  <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </>
+              ) : (
+                <>
+                  <Lock size={16} className="opacity-50" />
+                  Complete Challenge to Continue
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -1547,7 +1949,22 @@ function AppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="min-h-screen font-sans transition-colors duration-300 bg-app-bg text-app-text">
+      {/* Global Theme Toggle */}
+      <div className="fixed top-6 right-6 z-[150] flex items-center gap-4">
+        <button 
+          onClick={toggleTheme}
+          className={`p-3 rounded-2xl shadow-xl border backdrop-blur-md transition-all hover:scale-110 active:scale-95 ${
+            theme === 'dark' 
+              ? 'bg-slate-800/80 border-slate-700 text-amber-400' 
+              : 'bg-white/80 border-slate-200 text-slate-600'
+          }`}
+          title={theme === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
+        >
+          {theme === 'light' ? <Moon size={20} /> : <Sun size={20} />}
+        </button>
+      </div>
+
       <AnimatePresence mode="wait">
         {currentView === 'dashboard' ? (
           <motion.div
@@ -1567,10 +1984,21 @@ function AppContent() {
             className="fixed inset-0 z-[100] bg-slate-50 overflow-y-auto"
           >
             <Certificate 
-              userName="SkillStack Student" 
+              userName={userName || "SkillStack Student"} 
+              score={overallExamScore}
               date={new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
               onBack={() => setCurrentView('dashboard')}
             />
+          </motion.div>
+        ) : currentView === 'exam' ? (
+          <motion.div
+            key="exam"
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 1.02 }}
+            className="fixed inset-0 z-50 bg-slate-50 overflow-y-auto"
+          >
+            {renderExam()}
           </motion.div>
         ) : (
           <motion.div
@@ -1587,71 +2015,152 @@ function AppContent() {
 
       <AnimatePresence>
         {showCompletionModal && (
-          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/80 backdrop-blur-sm">
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-slate-900/90 backdrop-blur-md">
             <motion.div
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              initial={{ opacity: 0, scale: 0.8, y: 40 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="max-w-md w-full bg-white rounded-[40px] shadow-2xl overflow-hidden relative"
+              exit={{ opacity: 0, scale: 0.8, y: 40 }}
+              className="max-w-lg w-full bg-card-bg rounded-[40px] shadow-2xl overflow-hidden relative border border-card-border"
             >
-              <div className="absolute top-0 left-0 w-full h-2 bg-emerald-500"></div>
-              <div className="p-12 text-center">
-                <div className="w-24 h-24 bg-emerald-100 rounded-3xl flex items-center justify-center text-emerald-600 mx-auto mb-8 shadow-inner">
-                  <Trophy size={48} />
-                </div>
-                <h2 className="text-3xl font-black text-slate-900 mb-4 tracking-tight">You Did It!</h2>
-                <p className="text-slate-500 mb-8 leading-relaxed">
-                  You've successfully completed all modules and challenges in SkillStack. You're now a certified web developer!
+              <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-emerald-500 via-indigo-500 to-amber-500"></div>
+              <div className="p-12 text-center relative z-10">
+                <motion.div 
+                  animate={{ 
+                    rotate: [0, -10, 10, -10, 10, 0],
+                    scale: [1, 1.1, 1]
+                  }}
+                  transition={{ duration: 0.5, delay: 0.2 }}
+                  className="w-28 h-28 bg-emerald-100 dark:bg-emerald-900/30 rounded-[32px] flex items-center justify-center text-emerald-600 dark:text-emerald-400 mx-auto mb-8 shadow-inner"
+                >
+                  <Trophy size={56} />
+                </motion.div>
+                
+                <h2 className="text-4xl font-black text-app-text mb-4 tracking-tight">Incredible Work!</h2>
+                <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed text-lg">
+                  You've officially conquered every challenge in the SkillStack roadmap. You're now ready to build the future of the web!
                 </p>
-                <div className="flex flex-col gap-3">
+
+                {!userName && (
+                  <div className="mb-8 text-left animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Confirm your name for the certificate</label>
+                    <input 
+                      type="text" 
+                      placeholder="Your Full Name"
+                      className="w-full px-6 py-4 rounded-2xl border border-card-border bg-app-bg text-app-text focus:border-emerald-500 focus:ring-4 focus:ring-emerald-500/10 outline-none transition-all font-bold text-lg"
+                      onChange={(e) => updateUserName(e.target.value)}
+                    />
+                  </div>
+                )}
+
+                <div className="flex flex-col gap-4">
                   <button
                     onClick={() => {
                       setShowCompletionModal(false);
                       setCurrentView('certificate');
                     }}
-                    className="w-full py-4 bg-emerald-500 text-white rounded-2xl font-bold hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2"
+                    disabled={!userName}
+                    className="w-full py-5 bg-emerald-500 text-white rounded-2xl font-black text-lg hover:bg-emerald-600 transition-all shadow-2xl shadow-emerald-500/30 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed group"
                   >
-                    <Award size={20} />
-                    View Certificate
+                    <Award size={24} className="group-hover:rotate-12 transition-transform" />
+                    Claim Your Certificate
                   </button>
                   <button
                     onClick={() => setShowCompletionModal(false)}
-                    className="w-full py-4 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-all"
+                    className="w-full py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-2xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
                   >
-                    Back to Dashboard
+                    Return to Dashboard
                   </button>
                 </div>
               </div>
               
-              {/* Simple Confetti Particles */}
-              {[...Array(12)].map((_, i) => (
+              {/* Enhanced Confetti Particles */}
+              {[...Array(30)].map((_, i) => (
                 <motion.div
                   key={i}
                   initial={{ 
                     opacity: 1, 
                     x: 0, 
                     y: 0, 
-                    rotate: 0 
+                    rotate: 0,
+                    scale: Math.random() * 0.5 + 0.5
                   }}
                   animate={{ 
-                    opacity: 0, 
-                    x: (Math.random() - 0.5) * 400, 
-                    y: (Math.random() - 0.5) * 400, 
-                    rotate: Math.random() * 360 
+                    opacity: [1, 1, 0], 
+                    x: (Math.random() - 0.5) * 600, 
+                    y: (Math.random() - 0.5) * 600, 
+                    rotate: Math.random() * 720 
                   }}
                   transition={{ 
-                    duration: 2, 
+                    duration: Math.random() * 2 + 1, 
                     repeat: Infinity, 
-                    repeatDelay: Math.random() * 2 
+                    repeatDelay: Math.random() * 3 
                   }}
-                  className={`absolute w-2 h-2 rounded-full ${['bg-emerald-400', 'bg-indigo-400', 'bg-amber-400', 'bg-pink-400'][i % 4]}`}
-                  style={{ top: '50%', left: '50%' }}
+                  className={`absolute w-3 h-3 ${Math.random() > 0.5 ? 'rounded-full' : 'rounded-sm'} ${
+                    ['bg-emerald-400', 'bg-indigo-400', 'bg-amber-400', 'bg-pink-400', 'bg-cyan-400'][i % 5]
+                  }`}
+                  style={{ 
+                    top: `${Math.random() * 100}%`, 
+                    left: `${Math.random() * 100}%`,
+                    zIndex: 0
+                  }}
                 />
               ))}
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* WebSocket Status Indicators */}
+      <div className="fixed bottom-8 left-8 z-[150] flex flex-col gap-2">
+        <ConnectionStatusIndicator status={globalStatus} label="Global" />
+        {currentView === 'lesson' && (
+          <ConnectionStatusIndicator status={lessonStatus} label="Sync" />
+        )}
+      </div>
+
+      {/* Floating Action Buttons */}
+      <div className="fixed bottom-8 right-8 z-[150] flex flex-col gap-4">
+        <AnimatePresence>
+          {showScrollTop && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.5, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.5, y: 20 }}
+              onClick={scrollToTop}
+              className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md transition-all hover:scale-110 active:scale-95 ${
+                theme === 'dark' 
+                  ? 'bg-slate-800/90 border-slate-700 text-emerald-400' 
+                  : 'bg-white/90 border-slate-200 text-emerald-600'
+              }`}
+              title="Scroll to Top"
+            >
+              <ArrowUp size={24} />
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
+
+      <div className="fixed bottom-8 left-8 z-[150]">
+        <AnimatePresence>
+          {currentView !== 'dashboard' && (
+            <motion.button
+              initial={{ opacity: 0, scale: 0.5, x: -20 }}
+              animate={{ opacity: 1, scale: 1, x: 0 }}
+              exit={{ opacity: 0, scale: 0.5, x: -20 }}
+              onClick={() => setCurrentView('dashboard')}
+              className={`p-4 rounded-2xl shadow-2xl border backdrop-blur-md transition-all hover:scale-110 active:scale-95 flex items-center gap-2 font-bold ${
+                theme === 'dark' 
+                  ? 'bg-slate-800/90 border-slate-700 text-slate-300' 
+                  : 'bg-white/90 border-slate-200 text-slate-600'
+              }`}
+              title="Back to Dashboard"
+            >
+              <ArrowLeft size={24} />
+              <span className="hidden md:inline">Dashboard</span>
+            </motion.button>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 }

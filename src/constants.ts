@@ -1,10 +1,12 @@
 import { Module } from './types';
+import { MODULE_EXAMS } from './exams';
 
 export const ROADMAP: Module[] = [
   {
     id: 'm1',
     title: 'HTML Fundamentals',
     level: 'Beginner',
+    exam: MODULE_EXAMS.m1,
     lessons: [
       {
         id: 'h1',
@@ -65,6 +67,56 @@ export const ROADMAP: Module[] = [
         solution: '<img src="https://picsum.photos/200" alt="Random Image">',
         challenge: 'Add an <img> tag with src="https://picsum.photos/200" and an alt attribute set to "Random Image".',
         type: 'html'
+      },
+      {
+        id: 'h7',
+        title: 'HTML Accessibility (ARIA)',
+        description: 'Make your web pages usable for everyone.',
+        content: '[Accessibility](term:The practice of making websites usable by as many people as possible) is a core part of web development. [ARIA](term:Accessible Rich Internet Applications) attributes like `aria-label` and `role` help screen readers understand interactive elements that aren\'t standard HTML tags.',
+        initialCode: '<!-- 1. Create a <div> that acts like a button -->\n<!-- 2. Add role="button" and aria-label="Close" -->\n',
+        solution: '<div role="button" aria-label="Close">X</div>',
+        challenge: 'Create a <div> with role="button" and aria-label="Close" to make it accessible as a button.',
+        type: 'html'
+      },
+      {
+        id: 'h8',
+        title: 'Meta Tags and SEO',
+        description: 'Help search engines find and understand your site.',
+        content: '[Meta tags](term:Snippets of text that describe a page\'s content) go inside the `<head>` section. They don\'t appear on the page itself, but are used by search engines ([SEO](term:Search Engine Optimization)) and social media platforms.',
+        initialCode: '<!-- 1. Add a <meta> tag for description -->\n<!-- 2. Set content to "Learn web development with Lumina" -->\n',
+        solution: '<meta name="description" content="Learn web development with Lumina">',
+        challenge: 'Add a <meta> tag with name="description" and content="Learn web development with Lumina".',
+        type: 'html'
+      },
+      {
+        id: 'h9',
+        title: 'Web Components',
+        description: 'Learn how to create reusable custom HTML elements.',
+        content: '[Web Components](term:A suite of different technologies allowing you to create reusable custom elements) consist of three main technologies: Custom Elements, Shadow DOM, and HTML Templates.',
+        initialCode: '<script>\n  class MyElement extends HTMLElement {\n    constructor() {\n      super();\n      this.innerHTML = "<p>Hello from Custom Element!</p>";\n    }\n  }\n  // Register the element as "my-element"\n</script>\n<my-element></my-element>',
+        solution: '<script>\n  class MyElement extends HTMLElement {\n    constructor() {\n      super();\n      this.innerHTML = "<p>Hello from Custom Element!</p>";\n    }\n  }\n  customElements.define("my-element", MyElement);\n</script>\n<my-element></my-element>',
+        challenge: 'Register the custom element "my-element" using customElements.define.',
+        type: 'js'
+      },
+      {
+        id: 'h10',
+        title: 'HTML5 Canvas',
+        description: 'Learn how to draw graphics on the fly via scripting.',
+        content: 'The [Canvas API](term:A way to draw graphics via JavaScript and the HTML <canvas> element) can be used for drawing graphs, making photo compositions, creating animations, or even doing real-time video processing or rendering.',
+        initialCode: '<canvas id="myCanvas" width="200" height="100" style="border:1px solid #000000;"></canvas>\n<script>\n  const c = document.getElementById("myCanvas");\n  const ctx = c.getContext("2d");\n  // 1. Set fillStyle to "red"\n  // 2. Draw a rectangle at (0,0) with width 150 and height 75\n</script>',
+        solution: '<canvas id="myCanvas" width="200" height="100" style="border:1px solid #000000;"></canvas>\n<script>\n  const c = document.getElementById("myCanvas");\n  const ctx = c.getContext("2d");\n  ctx.fillStyle = "red";\n  ctx.fillRect(0, 0, 150, 75);\n</script>',
+        challenge: 'Use the Canvas 2D context to draw a red rectangle of 150x75 pixels.',
+        type: 'js'
+      },
+      {
+        id: 'h11',
+        title: 'SVG Basics',
+        description: 'Learn how to use Scalable Vector Graphics.',
+        content: '[SVG](term:Scalable Vector Graphics - an XML-based image format for two-dimensional graphics) is used to define vector-based graphics for the Web. SVGs do not lose any quality if they are zoomed or resized.',
+        initialCode: '<!-- 1. Create an <svg> element with width 100 and height 100 -->\n<!-- 2. Inside, add a <circle> with cx=50, cy=50, r=40, and fill="blue" -->\n',
+        solution: '<svg width="100" height="100">\n  <circle cx="50" cy="50" r="40" fill="blue" />\n</svg>',
+        challenge: 'Create an SVG circle with a radius of 40, centered at (50, 50), and filled with blue.',
+        type: 'html'
       }
     ]
   },
@@ -72,6 +124,7 @@ export const ROADMAP: Module[] = [
     id: 'm2',
     title: 'CSS Styling Basics',
     level: 'Beginner',
+    exam: MODULE_EXAMS.m2,
     lessons: [
       {
         id: 'c1',
@@ -178,6 +231,56 @@ export const ROADMAP: Module[] = [
         solution: '<style>\n  .box {\n    width: 100px;\n    height: 100px;\n    background: #3498db;\n    opacity: 1;\n    transition: background-color 0.5s, opacity 0.5s;\n  }\n\n  .box:hover {\n    background-color: #e74c3c;\n    opacity: 0.5;\n  }\n</style>\n<div class="box"></div>',
         challenge: 'Add transitions: Make the .box background-color and opacity transition over 0.5s when hovered.',
         type: 'css'
+      },
+      {
+        id: 'c11',
+        title: 'CSS Animations & Keyframes',
+        description: 'Create complex, multi-step animations.',
+        content: '[Keyframes](term:A way to define the start, end, and intermediate steps of a CSS animation) allow you to create complex animations that go beyond simple transitions. Use `@keyframes` to define the animation and the `animation` property to apply it.',
+        initialCode: '<style>\n  @keyframes slide {\n    from { transform: translateX(0); }\n    to { transform: translateX(100px); }\n  }\n  .box {\n    width: 50px;\n    height: 50px;\n    background: purple;\n    /* Apply the "slide" animation over 2 seconds, infinitely */\n  }\n</style>\n<div class="box"></div>',
+        solution: '<style>\n  @keyframes slide {\n    from { transform: translateX(0); }\n    to { transform: translateX(100px); }\n  }\n  .box {\n    width: 50px;\n    height: 50px;\n    background: purple;\n    animation: slide 2s infinite alternate;\n  }\n</style>\n<div class="box"></div>',
+        challenge: 'Apply the "slide" animation to the .box so it moves 100px to the right over 2 seconds, repeating infinitely.',
+        type: 'css'
+      },
+      {
+        id: 'c12',
+        title: 'CSS Architecture (BEM)',
+        description: 'Learn how to write maintainable and scalable CSS.',
+        content: '[BEM](term:Block Element Modifier - a popular naming convention for CSS classes) helps you write CSS that is easy to understand and maintain. It uses a specific naming pattern: `block__element--modifier`.',
+        initialCode: '<style>\n  /* 1. Style the block .card */\n  /* 2. Style the element .card__title */\n  /* 3. Style the modifier .card--featured */\n</style>\n<div class="card card--featured">\n  <h2 class="card__title">Featured Card</h2>\n</div>',
+        solution: '<style>\n  .card { padding: 20px; border: 1px solid #ccc; }\n  .card__title { font-size: 1.5rem; margin: 0; }\n  .card--featured { background: #f0f9ff; border-color: #0ea5e9; }\n</style>\n<div class="card card--featured">\n  <h2 class="card__title">Featured Card</h2>\n</div>',
+        challenge: 'Use BEM naming: Style the .card block, the .card__title element, and the .card--featured modifier.',
+        type: 'css'
+      },
+      {
+        id: 'c13',
+        title: 'Container Queries',
+        description: 'Style elements based on their container size, not the viewport.',
+        content: '[Container Queries](term:A CSS feature that allows you to style elements based on the size of a container element) are the next evolution of responsive design. Use `container-type: inline-size` on a parent and `@container` on the child.',
+        initialCode: '<style>\n  .parent {\n    /* 1. Set container-type to inline-size */\n    width: 300px;\n    border: 1px solid #ccc;\n  }\n  /* 2. Add a @container query for (min-width: 400px) */\n  /* 3. Inside, change .child background to emerald */\n  .child { background: slateblue; padding: 20px; color: white; }\n</style>\n<div class="parent">\n  <div class="child">I respond to my parent!</div>\n</div>',
+        solution: '<style>\n  .parent {\n    container-type: inline-size;\n    width: 300px;\n    border: 1px solid #ccc;\n  }\n  @container (min-width: 400px) {\n    .child {\n      background: #10b981;\n    }\n  }\n  .child { background: slateblue; padding: 20px; color: white; }\n</style>\n<div class="parent">\n  <div class="child">I respond to my parent!</div>\n</div>',
+        challenge: 'Set up a container query: Make the .parent a container and change the .child background when the parent is at least 400px wide.',
+        type: 'css'
+      },
+      {
+        id: 'c14',
+        title: 'CSS Logical Properties',
+        description: 'Learn how to write direction-agnostic CSS.',
+        content: '[Logical Properties](term:CSS properties that refer to the block and inline dimensions of an element rather than physical dimensions) help with internationalization. Instead of `margin-left`, use `margin-inline-start`.',
+        initialCode: '<style>\n  .box {\n    background: #f3f4f6;\n    /* 1. Set padding-inline to 20px */\n    /* 2. Set border-block-end to 4px solid blue */\n  }\n</style>\n<div class="box">Logical Styling</div>',
+        solution: '<style>\n  .box {\n    background: #f3f4f6;\n    padding-inline: 20px;\n    border-block-end: 4px solid blue;\n  }\n</style>\n<div class="box">Logical Styling</div>',
+        challenge: 'Use logical properties: Set padding-inline to 20px and border-block-end to 4px solid blue.',
+        type: 'css'
+      },
+      {
+        id: 'c15',
+        title: 'CSS Filters',
+        description: 'Apply visual effects like blur or contrast to elements.',
+        content: 'The [filter](term:A CSS property that applies graphical effects like blur or color shift to an element) property is used to apply visual effects. You can also use `backdrop-filter` to apply effects to the area behind an element.',
+        initialCode: '<style>\n  .blurred {\n    /* 1. Apply a blur filter of 5px */\n  }\n  .grayscale {\n    /* 2. Apply a grayscale filter of 100% */\n  }\n</style>\n<img class="blurred" src="https://picsum.photos/seed/1/200" alt="Blur me">\n<img class="grayscale" src="https://picsum.photos/seed/2/200" alt="Gray me">',
+        solution: '<style>\n  .blurred {\n    filter: blur(5px);\n  }\n  .grayscale {\n    filter: grayscale(100%);\n  }\n</style>\n<img class="blurred" src="https://picsum.photos/seed/1/200" alt="Blur me">\n<img class="grayscale" src="https://picsum.photos/seed/2/200" alt="Gray me">',
+        challenge: 'Apply filters: Blur the first image by 5px and make the second image 100% grayscale.',
+        type: 'css'
       }
     ]
   },
@@ -185,6 +288,7 @@ export const ROADMAP: Module[] = [
     id: 'm3',
     title: 'Modern Layouts',
     level: 'Intermediate',
+    exam: MODULE_EXAMS.m3,
     lessons: [
       {
         id: 'f0',
@@ -229,6 +333,36 @@ export const ROADMAP: Module[] = [
         solution: '<style>\n  .container {\n    display: grid;\n    grid-template-areas:\n      "header header"\n      "sidebar main"\n      "footer footer";\n    grid-gap: 10px;\n  }\n  header { grid-area: header; background: #3498db; }\n  aside { grid-area: sidebar; background: #e74c3c; }\n  main { grid-area: main; background: #2ecc71; }\n  footer { grid-area: footer; background: #f1c40f; }\n</style>\n<div class="container">\n  <header>Header</header>\n  <aside>Sidebar</aside>\n  <main>Main Content</main>\n  <footer>Footer</footer>\n</div>',
         challenge: 'Assign each element to its corresponding grid-area (header, sidebar, main, footer) to complete the layout.',
         type: 'css'
+      },
+      {
+        id: 'f2',
+        title: 'Flexbox Advanced',
+        description: 'Master flex-grow, flex-shrink, and flex-basis.',
+        content: '[Flex-grow](term:Defines the ability for a flex item to grow if necessary) and [flex-shrink](term:Defines the ability for a flex item to shrink if necessary) control how items fill space. [Flex-basis](term:Defines the default size of an element before the remaining space is distributed) sets the initial size.',
+        initialCode: '<style>\n  .container { display: flex; gap: 10px; }\n  .box { padding: 20px; background: #eee; }\n  .grow { \n    /* Set flex-grow to 1 */\n  }\n</style>\n<div class="container">\n  <div class="box grow">I grow</div>\n  <div class="box">I stay</div>\n</div>',
+        solution: '<style>\n  .container { display: flex; gap: 10px; }\n  .box { padding: 20px; background: #eee; }\n  .grow { flex-grow: 1; }\n</style>\n<div class="container">\n  <div class="box grow">I grow</div>\n  <div class="box">I stay</div>\n</div>',
+        challenge: 'Make the .grow box take up all remaining space by setting flex-grow to 1.',
+        type: 'css'
+      },
+      {
+        id: 'g3',
+        title: 'Grid Minmax & Auto-fit',
+        description: 'Create ultra-responsive grids without media queries.',
+        content: 'The [minmax()](term:Defines a size range greater than or equal to min and less than or equal to max) function and `auto-fit` keyword allow you to create grids that automatically wrap and resize based on available space.',
+        initialCode: '<style>\n  .grid {\n    display: grid;\n    /* Create a grid with auto-fit columns, min 200px, max 1fr */\n    gap: 10px;\n  }\n  .item { background: #3498db; height: 100px; }\n</style>\n<div class="grid">\n  <div class="item"></div>\n  <div class="item"></div>\n  <div class="item"></div>\n</div>',
+        solution: '<style>\n  .grid {\n    display: grid;\n    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));\n    gap: 10px;\n  }\n  .item { background: #3498db; height: 100px; }\n</style>\n<div class="grid">\n  <div class="item"></div>\n  <div class="item"></div>\n  <div class="item"></div>\n</div>',
+        challenge: 'Create a responsive grid using repeat(auto-fit, minmax(200px, 1fr)) so items wrap automatically.',
+        type: 'css'
+      },
+      {
+        id: 'g4',
+        title: 'Grid Alignment',
+        description: 'Master alignment in CSS Grid.',
+        content: 'Grid items can be aligned using [justify-items](term:Aligns grid items along the inline (row) axis) and [align-items](term:Aligns grid items along the block (column) axis). You can also use `place-items` as a shorthand.',
+        initialCode: '<style>\n  .grid {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    height: 200px;\n    background: #eee;\n    /* Center items in both directions */\n  }\n  .item { background: coral; padding: 10px; }\n</style>\n<div class="grid">\n  <div class="item">Centered</div>\n  <div class="item">Centered</div>\n</div>',
+        solution: '<style>\n  .grid {\n    display: grid;\n    grid-template-columns: 1fr 1fr;\n    height: 200px;\n    background: #eee;\n    place-items: center;\n  }\n  .item { background: coral; padding: 10px; }\n</style>\n<div class="grid">\n  <div class="item">Centered</div>\n  <div class="item">Centered</div>\n</div>',
+        challenge: 'Use place-items: center to center all items in the grid container.',
+        type: 'css'
       }
     ]
   },
@@ -236,6 +370,7 @@ export const ROADMAP: Module[] = [
     id: 'm4',
     title: 'JavaScript: The Brains',
     level: 'Intermediate',
+    exam: MODULE_EXAMS.m4,
     lessons: [
       {
         id: 'j1',
@@ -340,6 +475,66 @@ export const ROADMAP: Module[] = [
         solution: '<div id="output"></div>\n<script>\n  fetch("https://jsonplaceholder.typicode.com/posts/1")\n    .then(response => response.json())\n    .then(data => {\n      const output = document.getElementById("output");\n      output.innerText = data.title;\n    });\n</script>',
         challenge: 'Use fetch() to get data from the provided URL, parse it as JSON, and display the post title in the #output element.',
         type: 'js'
+      },
+      {
+        id: 'j11',
+        title: 'ES6+ Features: Destructuring',
+        description: 'Learn how to extract data from arrays and objects easily.',
+        content: '[Destructuring](term:A JavaScript expression that makes it possible to unpack values from arrays, or properties from objects, into distinct variables) is a modern way to extract data.',
+        initialCode: '<script>\n  const user = { name: "Alice", age: 25 };\n  // 1. Use destructuring to extract "name" and "age" from user\n  console.log(name, age);\n</script>',
+        solution: '<script>\n  const user = { name: "Alice", age: 25 };\n  const { name, age } = user;\n  console.log(name, age);\n</script>',
+        challenge: 'Use object destructuring to extract the "name" and "age" properties from the user object.',
+        type: 'js'
+      },
+      {
+        id: 'j12',
+        title: 'LocalStorage',
+        description: 'Learn how to save data in the browser.',
+        content: '[LocalStorage](term:A web storage object that allows you to store data across browser sessions) is perfect for saving user preferences or simple app state.',
+        initialCode: '<script>\n  // 1. Save "theme" as "dark" in localStorage\n  // 2. Retrieve it and log it to the console\n</script>',
+        solution: '<script>\n  localStorage.setItem("theme", "dark");\n  console.log(localStorage.getItem("theme"));\n</script>',
+        challenge: 'Save the key "theme" with the value "dark" to localStorage, then retrieve it and log it.',
+        type: 'js'
+      },
+      {
+        id: 'j13',
+        title: 'Error Handling: Try/Catch',
+        description: 'Learn how to handle errors gracefully.',
+        content: '[Try/Catch](term:A block of code used to handle errors that might occur during execution) prevents your whole app from crashing when something goes wrong.',
+        initialCode: '<script>\n  try {\n    // 1. Call a function that doesn\'t exist (e.g., nonExistentFunction())\n  } catch (error) {\n    // 2. Log "Error caught!" to the console\n  }\n</script>',
+        solution: '<script>\n  try {\n    nonExistentFunction();\n  } catch (error) {\n    console.log("Error caught!");\n  }\n</script>',
+        challenge: 'Use a try/catch block to catch an error caused by calling a non-existent function.',
+        type: 'js'
+      },
+      {
+        id: 'j14',
+        title: 'ES Modules',
+        description: 'Learn how to organize code into reusable files.',
+        content: '[ES Modules](term:The official standard for organizing JavaScript code into reusable files) use `export` to share code and `import` to use it.',
+        initialCode: '<script type="module">\n  // 1. Export a constant named "GREETING" with value "Hello"\n  // 2. (Simulated) Imagine importing it in another file\n  export const GREETING = "Hello";\n</script>',
+        solution: '<script type="module">\n  export const GREETING = "Hello";\n</script>',
+        challenge: 'Export a constant named "GREETING" from a module script.',
+        type: 'js'
+      },
+      {
+        id: 'j15',
+        title: 'Classes and Prototypes',
+        description: 'Learn Object-Oriented Programming in JavaScript.',
+        content: '[Classes](term:A template for creating objects) provide a much cleaner and clearer syntax to create objects and deal with inheritance.',
+        initialCode: '<script>\n  class Animal {\n    constructor(name) {\n      this.name = name;\n    }\n    speak() {\n      console.log(`${this.name} makes a noise.`);\n    }\n  }\n  // 1. Create a class "Dog" that extends "Animal"\n  // 2. Add a speak() method that logs "Bark!"\n</script>',
+        solution: '<script>\n  class Animal {\n    constructor(name) {\n      this.name = name;\n    }\n    speak() {\n      console.log(`${this.name} makes a noise.`);\n    }\n  }\n  class Dog extends Animal {\n    speak() {\n      console.log(`${this.name} barks!`);\n    }\n  }\n  const d = new Dog("Rex");\n  d.speak();\n</script>',
+        challenge: 'Create a Dog class that extends Animal and overrides the speak method.',
+        type: 'js'
+      },
+      {
+        id: 'j16',
+        title: 'Regular Expressions',
+        description: 'Learn how to search and manipulate text with patterns.',
+        content: '[Regular Expressions](term:Patterns used to match character combinations in strings) are powerful tools for text processing.',
+        initialCode: '<script>\n  const emailPattern = /^[\\w-\\.]+@([\\w-]+\\.)+[\\w-]{2,4}$/;\n  const testEmail = "test@example.com";\n  // Use emailPattern.test(testEmail) to check if it matches\n</script>',
+        solution: '<script>\n  const emailPattern = /^[\\w-\\.]+@([\\w-]+\\.)+[\\w-]{2,4}$/;\n  const testEmail = "test@example.com";\n  const isValid = emailPattern.test(testEmail);\n  console.log(isValid);\n</script>',
+        challenge: 'Use the .test() method of the regular expression to validate the email string.',
+        type: 'js'
       }
     ]
   },
@@ -347,6 +542,7 @@ export const ROADMAP: Module[] = [
     id: 'm5',
     title: 'React Basics',
     level: 'Advanced',
+    exam: MODULE_EXAMS.m5,
     lessons: [
       {
         id: 'r1',
@@ -369,6 +565,124 @@ export const ROADMAP: Module[] = [
         solution: '<div id="root"></div>\n<script>\n  let count = 0;\n  function update() {\n    document.getElementById("root").innerHTML = `\n      <p>Count: ${count}</p>\n      <button onclick="increment()">Increment</button>\n    `;\n  }\n  window.increment = () => {\n    count++;\n    update();\n  };\n  update();\n</script>',
         challenge: 'Simulate state: Create a counter that increments when a button is clicked and updates the UI.',
         type: 'html'
+      },
+      {
+        id: 'r3',
+        title: 'The useEffect Hook',
+        description: 'Handle side effects in your components.',
+        content: '[useEffect](term:A React Hook that lets you perform side effects in functional components) is used for things like fetching data, setting up subscriptions, or manually changing the DOM.',
+        initialCode: '<div id="root"></div>\n<script>\n  // Simulating useEffect: a function that runs after "render"\n  function useEffect(callback) {\n    setTimeout(callback, 0);\n  }\n  \n  useEffect(() => {\n    console.log("Component mounted!");\n  });\n</script>',
+        solution: '<div id="root"></div>\n<script>\n  function useEffect(callback) {\n    setTimeout(callback, 0);\n  }\n  \n  useEffect(() => {\n    console.log("Component mounted!");\n  });\n</script>',
+        challenge: 'Simulate useEffect: Log "Component mounted!" to the console using a simulated effect function.',
+        type: 'html'
+      },
+      {
+        id: 'r4',
+        title: 'Handling Forms in React',
+        description: 'Learn about controlled components.',
+        content: 'In React, [controlled components](term:Components where form data is handled by the component state) are the standard way to handle forms. Every input value is tied to a state variable.',
+        initialCode: '<div id="root"></div>\n<script>\n  let text = "";\n  function render() {\n    document.getElementById("root").innerHTML = `\n      <input type="text" value="${text}" oninput="handleChange(event)">\n      <p>You typed: ${text}</p>\n    `;\n  }\n  window.handleChange = (e) => {\n    text = e.target.value;\n    render();\n  };\n  render();\n</script>',
+        solution: '<div id="root"></div>\n<script>\n  let text = "";\n  function render() {\n    document.getElementById("root").innerHTML = `\n      <input type="text" value="${text}" oninput="handleChange(event)">\n      <p>You typed: ${text}</p>\n    `;\n  }\n  window.handleChange = (e) => {\n    text = e.target.value;\n    render();\n  };\n  render();\n</script>',
+        challenge: 'Simulate a controlled input: Update the "text" state on every input change and re-render the UI.',
+        type: 'html'
+      },
+      {
+        id: 'r5',
+        title: 'Conditional Rendering',
+        description: 'Learn how to show or hide elements based on state.',
+        content: 'In React, you can use JavaScript operators like `if` or the ternary operator `? :` to create elements representing the current state.',
+        initialCode: '<div id="root"></div>\n<script>\n  let isLoggedIn = false;\n  function render() {\n    document.getElementById("root").innerHTML = `\n      <div>\n        ${isLoggedIn ? "<h1>Welcome Back!</h1>" : "<h1>Please Log In</h1>"}\n        <button onclick="toggle()">${isLoggedIn ? "Logout" : "Login"}</button>\n      </div>\n    `;\n  }\n  window.toggle = () => {\n    isLoggedIn = !isLoggedIn;\n    render();\n  };\n  render();\n</script>',
+        solution: '<div id="root"></div>\n<script>\n  let isLoggedIn = false;\n  function render() {\n    document.getElementById("root").innerHTML = `\n      <div>\n        ${isLoggedIn ? "<h1>Welcome Back!</h1>" : "<h1>Please Log In</h1>"}\n        <button onclick="toggle()">${isLoggedIn ? "Logout" : "Login"}</button>\n      </div>\n    `;\n  }\n  window.toggle = () => {\n    isLoggedIn = !isLoggedIn;\n    render();\n  };\n  render();\n</script>',
+        challenge: 'Simulate conditional rendering: Toggle the "isLoggedIn" state and update the UI to show different messages.',
+        type: 'html'
+      },
+      {
+        id: 'r6',
+        title: 'Lists and Keys',
+        description: 'Learn how to render multiple components from an array.',
+        content: 'When rendering lists in React, you use the `.map()` method. Each item in the list needs a unique `key` prop to help React identify which items have changed, been added, or been removed.',
+        initialCode: '<div id="root"></div>\n<script>\n  const items = ["Apple", "Banana", "Orange"];\n  function render() {\n    const listItems = items.map(item => `<li>${item}</li>`).join("");\n    document.getElementById("root").innerHTML = `<ul>${listItems}</ul>`;\n  }\n  render();\n</script>',
+        solution: '<div id="root"></div>\n<script>\n  const items = ["Apple", "Banana", "Orange"];\n  function render() {\n    const listItems = items.map(item => `<li>${item}</li>`).join("");\n    document.getElementById("root").innerHTML = `<ul>${listItems}</ul>`;\n  }\n  render();\n</script>',
+        challenge: 'Simulate list rendering: Use .map() to transform the "items" array into a string of <li> elements and display them.',
+        type: 'html'
+      },
+      {
+        id: 'r7',
+        title: 'Context API',
+        description: 'Learn how to share state globally without prop drilling.',
+        content: '[Context](term:A way to pass data through the component tree without having to pass props down manually at every level) is ideal for global data like themes or user info.',
+        initialCode: '<script>\n  // 1. Create a Context (simulated)\n  // 2. Provide a value "dark"\n  const ThemeContext = { value: "dark" };\n  console.log(ThemeContext.value);\n</script>',
+        solution: '<script>\n  const ThemeContext = { value: "dark" };\n  console.log(ThemeContext.value);\n</script>',
+        challenge: 'Simulate creating a context with a value of "dark".',
+        type: 'js'
+      },
+      {
+        id: 'r8',
+        title: 'React Router',
+        description: 'Learn how to handle navigation in a Single Page Application.',
+        content: '[React Router](term:The standard routing library for React) allows you to handle navigation without refreshing the page.',
+        initialCode: '<script>\n  // Simulated routing logic\n  const routes = {\n    "/": "Home Page",\n    "/about": "About Page"\n  };\n  function navigate(path) {\n    console.log("Navigating to:", routes[path]);\n  }\n  navigate("/about");\n</script>',
+        solution: '<script>\n  const routes = {\n    "/": "Home Page",\n    "/about": "About Page"\n  };\n  function navigate(path) {\n    console.log("Navigating to:", routes[path]);\n  }\n  navigate("/about");\n</script>',
+        challenge: 'Simulate a simple router that logs the page name based on a path.',
+        type: 'js'
+      }
+    ]
+  },
+  {
+    id: 'm6',
+    title: 'Backend & Databases',
+    level: 'Advanced',
+    exam: MODULE_EXAMS.m6,
+    lessons: [
+      {
+        id: 'b1',
+        title: 'What is a Backend?',
+        description: 'Understand the server-side of web development.',
+        content: 'The [Backend](term:The part of a website that users don\'t see, responsible for data storage and business logic) is where the "magic" happens. It handles database connections, user authentication, and complex calculations.',
+        initialCode: '<script>\n  // Conceptual: Imagine a server responding to a request\n  function handleRequest(url) {\n    if (url === "/api/data") {\n      return { status: 200, data: "Hello from Backend!" };\n    }\n  }\n  console.log(handleRequest("/api/data"));\n</script>',
+        solution: '<script>\n  function handleRequest(url) {\n    if (url === "/api/data") {\n      return { status: 200, data: "Hello from Backend!" };\n    }\n  }\n  console.log(handleRequest("/api/data"));\n</script>',
+        challenge: 'Simulate a simple backend request handler that returns a status and data.',
+        type: 'js'
+      },
+      {
+        id: 'b2',
+        title: 'Introduction to Node.js',
+        description: 'Learn how to run JavaScript on the server.',
+        content: '[Node.js](term:A JavaScript runtime built on Chrome\'s V8 JavaScript engine) allows you to use JavaScript outside of the browser, enabling you to build scalable network applications.',
+        initialCode: '<script>\n  // Conceptual: Node.js uses "require" or "import" for modules\n  // const fs = require("fs");\n  console.log("Node.js is running!");\n</script>',
+        solution: '<script>\n  console.log("Node.js is running!");\n</script>',
+        challenge: 'Log "Node.js is running!" to simulate a Node.js script.',
+        type: 'js'
+      },
+      {
+        id: 'b3',
+        title: 'REST APIs and HTTP Methods',
+        description: 'Learn how systems communicate over the web.',
+        content: '[REST](term:Representational State Transfer - an architectural style for providing standards between computer systems on the web) uses HTTP methods like [GET](term:Retrieve data), [POST](term:Create data), [PUT](term:Update data), and [DELETE](term:Remove data).',
+        initialCode: '<script>\n  const api = {\n    get: () => console.log("Fetching data..."),\n    post: (data) => console.log("Creating:", data)\n  };\n  // 1. Call api.get()\n  // 2. Call api.post() with "New Item"\n</script>',
+        solution: '<script>\n  const api = {\n    get: () => console.log("Fetching data..."),\n    post: (data) => console.log("Creating:", data)\n  };\n  api.get();\n  api.post("New Item");\n</script>',
+        challenge: 'Simulate calling GET and POST methods on a mock API object.',
+        type: 'js'
+      },
+      {
+        id: 'b4',
+        title: 'SQL vs NoSQL',
+        description: 'Understand the two main types of databases.',
+        content: '[SQL](term:Structured Query Language - used for relational databases) databases like PostgreSQL use tables. [NoSQL](term:Non-relational databases) databases like MongoDB use document-based storage.',
+        initialCode: '<script>\n  // Conceptual: SQL Query\n  const sqlQuery = "SELECT * FROM users WHERE id = 1";\n  // Conceptual: NoSQL Query\n  const nosqlQuery = "db.users.find({ id: 1 })";\n  console.log("SQL:", sqlQuery);\n  console.log("NoSQL:", nosqlQuery);\n</script>',
+        solution: '<script>\n  const sqlQuery = "SELECT * FROM users WHERE id = 1";\n  const nosqlQuery = "db.users.find({ id: 1 })";\n  console.log("SQL:", sqlQuery);\n  console.log("NoSQL:", nosqlQuery);\n</script>',
+        challenge: 'Log both a mock SQL query and a mock NoSQL query to the console.',
+        type: 'js'
+      },
+      {
+        id: 'b5',
+        title: 'Authentication Basics',
+        description: 'Learn how to secure your application.',
+        content: '[Authentication](term:The process of verifying who a user is) often involves [JWT](term:JSON Web Token - a compact, URL-safe means of representing claims to be transferred between two parties) which are used to securely transmit information.',
+        initialCode: '<script>\n  const user = { id: 123, username: "dev" };\n  // Simulated token generation\n  const token = btoa(JSON.stringify(user));\n  console.log("Token:", token);\n</script>',
+        solution: '<script>\n  const user = { id: 123, username: "dev" };\n  const token = btoa(JSON.stringify(user));\n  console.log("Token:", token);\n</script>',
+        challenge: 'Simulate generating a simple token by base64 encoding a user object.',
+        type: 'js'
       }
     ]
   }

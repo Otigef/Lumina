@@ -13,15 +13,35 @@ export interface Lesson {
   videoPrompt?: string;
 }
 
+export interface ExamQuestion {
+  id: string;
+  question: string;
+  options: string[];
+  correctAnswer: number; // index of options
+}
+
+export interface Exam {
+  id: string;
+  title: string;
+  questions: ExamQuestion[];
+}
+
 export interface Module {
   id: string;
   title: string;
   level: Level;
   lessons: Lesson[];
+  exam?: Exam;
 }
 
 export interface UserProgress {
   lesson_id: string;
   completed: boolean;
   code_state: string;
+}
+
+export interface ExamScore {
+  module_id: string;
+  score: number; // percentage 0-100
+  completed: boolean;
 }
